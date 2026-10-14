@@ -30,6 +30,7 @@ import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.GameGestures;
+import com.limelight.ui.KeyCommandPanel;
 import com.limelight.ui.StreamView;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.ServerHelper;
@@ -91,7 +92,8 @@ import java.util.Locale;
 public class Game extends Activity implements SurfaceHolder.Callback,
         OnGenericMotionListener, OnTouchListener, NvConnectionListener, EvdevListener,
         OnSystemUiVisibilityChangeListener, GameGestures, StreamView.InputCallbacks,
-        PerfOverlayListener, UsbDriverService.UsbDriverStateListener, View.OnKeyListener {
+        PerfOverlayListener, UsbDriverService.UsbDriverStateListener, View.OnKeyListener,
+        KeyCommandPanel.KeyCommandListener {
     private int lastButtonState = 0;
 
     // Only 2 touches are supported
@@ -109,9 +111,20 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     private static final int THREE_FINGER_TAP_THRESHOLD = 300;
 
+    // Modifier keys as Windows VKs, paired with the KeyboardPacket bit each one sets.
+    private static final int VK_LSHIFT = 0xA0;
+    private static final int VK_LCONTROL = 0xA2;
+    private static final int VK_LMENU = 0xA4;
+    private static final int[][] MODIFIER_KEYS = {
+            { KeyboardPacket.MODIFIER_CTRL, VK_LCONTROL },
+            { KeyboardPacket.MODIFIER_ALT, VK_LMENU },
+            { KeyboardPacket.MODIFIER_SHIFT, VK_LSHIFT },
+    };
+
     private ControllerHandler controllerHandler;
     private KeyboardTranslator keyboardTranslator;
     private VirtualController virtualController;
+    private KeyCommandPanel keyCommandPanel;
 
     private PreferenceConfiguration prefConfig;
     private SharedPreferences tombstonePrefs;
@@ -272,6 +285,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         performanceOverlayView = findViewById(R.id.performanceOverlay);
 
+        keyCommandPanel = new KeyCommandPanel(findViewById(R.id.keyCommandPanel),
+                findViewById(R.id.keyCommandPanelButton), this);
+
         inputCaptureProvider = InputCaptureManager.getInputCaptureProvider(this, this);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -372,6 +388,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         if (prefConfig.enablePerfOverlay) {
             performanceOverlayView.setVisibility(View.VISIBLE);
         }
+
+        keyCommandPanel.setTriggerVisible(prefConfig.enableKeyCommandPanel);
 
         decoderRenderer = new MediaCodecDecoderRenderer(
                 this,
@@ -581,6 +599,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         // Set requested orientation for possible new screen size
         setPreferredOrientationForCurrentDisplay();
 
+        // Dismiss the key panel before the OSC is rebuilt below. refreshLayout() re-adds the
+        // OSC buttons on top of the XML children, so leaving the panel up would strand it
+        // underneath a still-tappable on-screen controller.
+        keyCommandPanel.hide();
+
         if (virtualController != null) {
             // Refresh layout of OSC for possible new screen size
             virtualController.refreshLayout();
@@ -594,6 +617,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 if (virtualController != null) {
                     virtualController.hide();
                 }
+
+                // Dismiss rather than restore on PiP exit, so the panel can't reappear stale
+                keyCommandPanel.hide();
+                keyCommandPanel.setTriggerVisible(false);
 
                 performanceOverlayView.setVisibility(View.GONE);
                 notificationOverlayView.setVisibility(View.GONE);
@@ -616,6 +643,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 if (prefConfig.enablePerfOverlay) {
                     performanceOverlayView.setVisibility(View.VISIBLE);
                 }
+
+                keyCommandPanel.setTriggerVisible(prefConfig.enableKeyCommandPanel);
 
                 notificationOverlayView.setVisibility(requestedNotificationOverlayVisibility);
 
@@ -1320,6 +1349,60 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     @Override
+    public void onKeyCommand(int vkCode, byte modifiers) {
+        sendKeyCommand(vkCode, modifiers);
+    }
+
+    private void sendKeyCommand(int vkCode, byte modifiers) {
+        // The stream can end while the panel is still on screen.
+        if (conn == null || !connected) {
+            return;
+        }
+
+        LimeLog.info("Sending special key VK=0x" + Integer.toHexString(vkCode) +
+                " modifiers=" + modifiers);
+
+        // Press the modifiers as real key events, the same way a physical Ctrl+C chord
+        // reaches the host, rather than relying on the modifier byte alone.
+        byte state = 0;
+        for (int[] modifierKey : MODIFIER_KEYS) {
+            if ((modifiers & modifierKey[0]) != 0) {
+                state |= modifierKey[0];
+                conn.sendKeyboardInput(keyMapFor(modifierKey[1]), KeyboardPacket.KEY_DOWN,
+                        state, (byte) 0);
+            }
+        }
+
+        conn.sendKeyboardInput(keyMapFor(vkCode), KeyboardPacket.KEY_DOWN, modifiers, (byte) 0);
+        conn.sendKeyboardInput(keyMapFor(vkCode), KeyboardPacket.KEY_UP, modifiers, (byte) 0);
+
+        // Release the modifiers in reverse order
+        for (int i = MODIFIER_KEYS.length - 1; i >= 0; i--) {
+            if ((modifiers & MODIFIER_KEYS[i][0]) != 0) {
+                state &= ~MODIFIER_KEYS[i][0];
+                conn.sendKeyboardInput(keyMapFor(MODIFIER_KEYS[i][1]), KeyboardPacket.KEY_UP,
+                        state, (byte) 0);
+            }
+        }
+    }
+
+    // Key codes on this channel carry GFE's 0x80 prefix in the high byte.
+    private static short keyMapFor(int vkCode) {
+        return (short) (0x8000 | (vkCode & 0xFF));
+    }
+
+    @Override
+    public void onBackPressed() {
+        // Back closes the panel when it's up, rather than ending the stream
+        if (keyCommandPanel.isShowing()) {
+            keyCommandPanel.hide();
+            return;
+        }
+
+        super.onBackPressed();
+    }
+
+    @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         return handleKeyDown(event) || super.onKeyDown(keyCode, event);
     }
@@ -1502,6 +1585,22 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         LimeLog.info("Toggling keyboard overlay");
         InputMethodManager inputManager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         inputManager.toggleSoftInput(0, 0);
+    }
+
+    private void showKeyCommandPanel() {
+        if (isHidingOverlays ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode())) {
+            return;
+        }
+
+        LimeLog.info("Showing special key panel");
+
+        // Don't leave a half finished drag behind once the panel covers the stream.
+        for (TouchContext touchContext : touchContextMap) {
+            touchContext.cancelTouch();
+        }
+
+        keyCommandPanel.show();
     }
 
     private byte getLiTouchTypeFromEvent(MotionEvent event) {
@@ -2306,6 +2405,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
                 // Ungrab input
                 setInputGrabState(false);
+
+                // Dismiss the special key panel, since there is no longer anything to send to
+                keyCommandPanel.hide();
+                keyCommandPanel.setTriggerVisible(false);
 
                 if (!displayedFailureDialog) {
                     displayedFailureDialog = true;

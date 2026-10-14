@@ -50,4 +50,50 @@
         android:preferKeepClear="true"
         android:visibility="gone" />
 
+    <!-- Opens the special key panel. A visible button rather than a gesture because
+         ColorOS (and other OEM skins) claim multi-finger gestures for screenshots and
+         split screen, pilfering the touch stream before the app ever sees it. -->
+    <Button
+        android:id="@+id/keyCommandPanelButton"
+        android:layout_width="wrap_content"
+        android:layout_height="32dp"
+        android:layout_gravity="top|right"
+        android:layout_marginTop="10dp"
+        android:layout_marginRight="10dp"
+        android:layout_marginEnd="10dp"
+        android:background="@drawable/key_panel_button_bg"
+        android:minWidth="0dp"
+        android:paddingLeft="14dp"
+        android:paddingRight="14dp"
+        android:text="@string/key_command_panel_button"
+        android:textColor="#ffffff"
+        android:textSize="12sp"
+        android:focusable="false"
+        android:focusableInTouchMode="false"
+        android:preferKeepClear="true" />
+
+    <!-- Modal panel of special keys. The scrim is full screen so it both centers the
+         panel and swallows touches aimed at the stream underneath. Contents are built
+         by com.limelight.ui.KeyCommandPanel. -->
+    <FrameLayout
+        android:id="@+id/keyCommandPanel"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center"
+        android:clickable="true"
+        android:focusable="false"
+        android:preferKeepClear="true"
+        android:visibility="gone" >
+
+        <LinearLayout
+            android:id="@+id/keyCommandPanelContent"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:orientation="vertical"
+            android:background="#80000000"
+            android:padding="10dp"
+            android:preferKeepClear="true" />
+    </FrameLayout>
+
 </merge>
