@@ -32,6 +32,7 @@
         android:layout_gravity="left"
         android:textAppearance="?android:attr/textAppearanceSmall"
         android:gravity="left"
+        android:maxLines="1"
         android:background="#80000000"
         android:preferKeepClear="true"
         android:visibility="gone" />
