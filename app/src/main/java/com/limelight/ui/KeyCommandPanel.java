@@ -1,6 +1,7 @@
 package com.limelight.ui;
 
 import android.content.Context;
+import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -25,6 +26,7 @@ import com.limelight.nvstream.input.KeyboardPacket;
 public class KeyCommandPanel {
     public interface KeyCommandListener {
         void onKeyCommand(int vkCode, byte modifiers);
+        void onShowKeyboard();
     }
 
     private static final byte CTRL = KeyboardPacket.MODIFIER_CTRL;
@@ -52,6 +54,8 @@ public class KeyCommandPanel {
     private static final int VK_DOWN = 0x28;
     private static final int VK_SNAPSHOT = 0x2C;
     private static final int VK_DELETE = 0x2E;
+    private static final int VK_C = 0x43;
+    private static final int VK_V = 0x56;
     private static final int VK_LWIN = 0x5B;
     private static final int VK_F1 = 0x70;
     private static final int VK_F4 = 0x73;
@@ -74,8 +78,8 @@ public class KeyCommandPanel {
             new Command("End", VK_END, (byte) 0),
             new Command("PgUp", VK_PAGE_UP, (byte) 0),
             new Command("PgDn", VK_PAGE_DOWN, (byte) 0),
-            new Command("↑", VK_UP, (byte) 0),
             new Command("Win", VK_LWIN, (byte) 0),
+            new Command("↑", VK_UP, (byte) 0),
 
             new Command("←", VK_LEFT, (byte) 0),
             new Command("↓", VK_DOWN, (byte) 0),
@@ -88,6 +92,8 @@ public class KeyCommandPanel {
      * uses to inject input) cannot generate. Ctrl+Shift+Esc opens Task Manager instead.
      */
     private static final Command[] COMBO_COMMANDS = {
+            new Command("Ctrl+C", VK_C, CTRL),
+            new Command("Ctrl+V", VK_V, CTRL),
             new Command("Ctrl+Shift+Esc", VK_ESCAPE, (byte) (CTRL | SHIFT)),
             new Command("Alt+F4", VK_F4, ALT),
             new Command("Alt+Tab", VK_TAB, ALT),
@@ -95,9 +101,21 @@ public class KeyCommandPanel {
             new Command("Alt+Enter", VK_ENTER, ALT),
     };
 
-    private static final int NAV_COLUMNS = 6;
+    // Phone screens are only ~360dp tall in landscape. Rows are 40dp, so the panel must
+    // stay at seven rows or the last one gets clipped off the bottom: 2 nav rows,
+    // 2 function rows, 2 combo rows, and 1 action row.
+    private static final int NAV_COLUMNS = 8;
     private static final int FUNCTION_COLUMNS = 6;
-    private static final int COMBO_COLUMNS = 3;
+    private static final int COMBO_COLUMNS = 4;
+
+    // Muted category colors, with dark text for contrast on the light pastel fills.
+    // 80% alpha lets the stream show through the panel a little (see styleButton()).
+    private static final int COLOR_NAV = 0xCC8FAFC9;       // soft blue
+    private static final int COLOR_FUNCTION = 0xCC9DBEA5;  // soft green
+    private static final int COLOR_COMBO = 0xCCD6BA91;     // soft amber
+    private static final int COLOR_KEYBOARD = 0xCC8CBDB8;  // soft teal
+    private static final int COLOR_CLOSE = 0xCCC98F8F;     // soft red
+    private static final int COLOR_BUTTON_TEXT = 0xFF202020;
 
     private final View scrim;
     private final View triggerButton;
@@ -130,10 +148,12 @@ public class KeyCommandPanel {
         Context context = scrim.getContext();
         LinearLayout content = scrim.findViewById(R.id.keyCommandPanelContent);
 
-        content.addView(buildGrid(context, NAV_COLUMNS, NAV_COMMANDS));
-        content.addView(buildGrid(context, FUNCTION_COLUMNS, buildFunctionKeys()));
-        content.addView(buildGrid(context, COMBO_COLUMNS, COMBO_COMMANDS));
-        content.addView(buildCloseRow(context));
+        content.addView(buildGrid(context, NAV_COLUMNS, NAV_COMMANDS, COLOR_NAV));
+        content.addView(buildGrid(context, FUNCTION_COLUMNS, buildFunctionKeys(), COLOR_FUNCTION));
+        content.addView(buildGrid(context, COMBO_COLUMNS, COMBO_COMMANDS, COLOR_COMBO));
+        content.addView(buildActionRow(context), new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
 
         // Tapping the panel itself must not dismiss it.
         content.setClickable(true);
@@ -156,7 +176,7 @@ public class KeyCommandPanel {
         return commands;
     }
 
-    private GridLayout buildGrid(Context context, int columnCount, Command[] commands) {
+    private GridLayout buildGrid(Context context, int columnCount, Command[] commands, int color) {
         GridLayout grid = new GridLayout(context);
         grid.setColumnCount(columnCount);
 
@@ -167,6 +187,7 @@ public class KeyCommandPanel {
             button.setMinWidth(dp(context, 48));
             button.setMinHeight(dp(context, 40));
             button.setPadding(dp(context, 6), 0, dp(context, 6), 0);
+            styleButton(context, button, color);
 
             // streamView must keep focus for physical keyboard forwarding, so tapping the
             // panel must never move focus to a button.
@@ -186,9 +207,28 @@ public class KeyCommandPanel {
         return grid;
     }
 
-    private LinearLayout buildCloseRow(Context context) {
+    private LinearLayout buildActionRow(Context context) {
         LinearLayout row = new LinearLayout(context);
         row.setGravity(Gravity.END);
+
+        Button keyboard = new Button(context);
+        keyboard.setText("Keyboard");
+        keyboard.setTextSize(12);
+        keyboard.setMinWidth(dp(context, 48));
+        keyboard.setMinHeight(dp(context, 40));
+        keyboard.setPadding(dp(context, 6), 0, dp(context, 6), 0);
+        keyboard.setFocusable(false);
+        keyboard.setFocusableInTouchMode(false);
+        styleButton(context, keyboard, COLOR_KEYBOARD);
+        keyboard.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                // Dismiss the panel first, then let the owner raise the IME.
+                hide();
+                listener.onShowKeyboard();
+            }
+        });
+        row.addView(keyboard);
 
         Button close = new Button(context);
         close.setText("✕");
@@ -196,6 +236,7 @@ public class KeyCommandPanel {
         close.setMinHeight(dp(context, 40));
         close.setFocusable(false);
         close.setFocusableInTouchMode(false);
+        styleButton(context, close, COLOR_CLOSE);
         close.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -205,6 +246,16 @@ public class KeyCommandPanel {
 
         row.addView(close);
         return row;
+    }
+
+    private static void styleButton(Context context, Button button, int color) {
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(color);
+        background.setCornerRadius(dp(context, 6));
+        // A light edge reads as a glass highlight against the dark scrim.
+        background.setStroke(dp(context, 1), 0x40FFFFFF);
+        button.setBackground(background);
+        button.setTextColor(COLOR_BUTTON_TEXT);
     }
 
     private static int dp(Context context, int value) {

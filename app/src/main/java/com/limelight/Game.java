@@ -1353,6 +1353,29 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         sendKeyCommand(vkCode, modifiers);
     }
 
+    @Override
+    public void onShowKeyboard() {
+        // The stream can end while the panel is still on screen.
+        if (conn == null || !connected) {
+            return;
+        }
+
+        LimeLog.info("Showing keyboard overlay");
+
+        InputMethodManager inputManager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+
+        // Panel buttons are non-focusable, so StreamView should still own focus. Re-assert
+        // it so showSoftInput() has a valid target and IME key events are forwarded upstream.
+        streamView.requestFocus();
+
+        // showSoftInput() only shows the IME; toggleSoftInput() would hide an already-visible
+        // keyboard. Fall back to the proven 3-finger path if the IME refuses to attach to
+        // this SurfaceView.
+        if (!inputManager.showSoftInput(streamView, 0)) {
+            inputManager.toggleSoftInput(0, 0);
+        }
+    }
+
     private void sendKeyCommand(int vkCode, byte modifiers) {
         // The stream can end while the panel is still on screen.
         if (conn == null || !connected) {
