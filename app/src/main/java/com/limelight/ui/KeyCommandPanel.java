@@ -54,6 +54,7 @@ public class KeyCommandPanel {
     private static final int VK_DOWN = 0x28;
     private static final int VK_SNAPSHOT = 0x2C;
     private static final int VK_DELETE = 0x2E;
+    private static final int VK_A = 0x41;
     private static final int VK_C = 0x43;
     private static final int VK_V = 0x56;
     private static final int VK_LWIN = 0x5B;
@@ -92,6 +93,7 @@ public class KeyCommandPanel {
      * uses to inject input) cannot generate. Ctrl+Shift+Esc opens Task Manager instead.
      */
     private static final Command[] COMBO_COMMANDS = {
+            new Command("Ctrl+A", VK_A, CTRL),
             new Command("Ctrl+C", VK_C, CTRL),
             new Command("Ctrl+V", VK_V, CTRL),
             new Command("Ctrl+Shift+Esc", VK_ESCAPE, (byte) (CTRL | SHIFT)),
